@@ -1,0 +1,37 @@
+{
+  "model": "Qwen/Qwen2.5-32B-Instruct",
+  "checkpoint": null,
+  "num_examples": 50,
+  "per_role": {
+    "STRUCTURAL": {
+      "mean_loss": 5.521235733032227,
+      "count": 100
+    },
+    "QUOTE": {
+      "mean_loss": 0.16988399242099964,
+      "count": 950
+    },
+    "KEY": {
+      "mean_loss": 0.6734461426734925,
+      "count": 1000
+    },
+    "ENUM_VALUE": {
+      "mean_loss": 1.5863621512663018,
+      "count": 206
+    },
+    "BOOLEAN": {
+      "mean_loss": 0.7364280343055725,
+      "count": 100
+    },
+    "FREE_TEXT": {
+      "mean_loss": 1.7123300862225197,
+      "count": 1642
+    },
+    "WHITESPACE": {
+      "mean_loss": 0.0294832416166339,
+      "count": 1425
+    }
+  },
+  "total_mean_loss": 0.8558090607134724,
+  "total_tokens": 5423
+}

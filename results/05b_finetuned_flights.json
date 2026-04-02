@@ -1,0 +1,37 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "checkpoint": "checkpoints/05b_flights_lora_epoch10",
+  "num_examples": 50,
+  "per_role": {
+    "STRUCTURAL": {
+      "mean_loss": 0.00020522832870483398,
+      "count": 100
+    },
+    "QUOTE": {
+      "mean_loss": 0.0005094903249007004,
+      "count": 1300
+    },
+    "KEY": {
+      "mean_loss": 0.0004294606617518834,
+      "count": 1750
+    },
+    "ENUM_VALUE": {
+      "mean_loss": 0.25884454404154134,
+      "count": 310
+    },
+    "BOOLEAN": {
+      "mean_loss": 0.3707759857177734,
+      "count": 50
+    },
+    "FREE_TEXT": {
+      "mean_loss": 0.5192097868873549,
+      "count": 1769
+    },
+    "WHITESPACE": {
+      "mean_loss": 1.7707164470966047e-05,
+      "count": 1950
+    }
+  },
+  "total_mean_loss": 0.14092290307463312,
+  "total_tokens": 7229
+}

@@ -1,0 +1,37 @@
+{
+  "model": "Qwen/Qwen2.5-32B-Instruct",
+  "checkpoint": "checkpoints/32b_restaurants_lora_epoch10",
+  "num_examples": 50,
+  "per_role": {
+    "STRUCTURAL": {
+      "mean_loss": 4.82177734375e-05,
+      "count": 100
+    },
+    "QUOTE": {
+      "mean_loss": 0.021443038488689222,
+      "count": 950
+    },
+    "KEY": {
+      "mean_loss": 0.0010325037240982056,
+      "count": 1000
+    },
+    "ENUM_VALUE": {
+      "mean_loss": 0.5100730298792274,
+      "count": 206
+    },
+    "BOOLEAN": {
+      "mean_loss": 0.5008036184310913,
+      "count": 100
+    },
+    "FREE_TEXT": {
+      "mean_loss": 1.1127027109827978,
+      "count": 1642
+    },
+    "WHITESPACE": {
+      "mean_loss": 3.674239443059553e-06,
+      "count": 1425
+    }
+  },
+  "total_mean_loss": 0.3694683210932855,
+  "total_tokens": 5423
+}

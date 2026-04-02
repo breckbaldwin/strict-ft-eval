@@ -1,0 +1,84 @@
+{
+  "type": "object",
+  "properties": {
+    "passengers": {
+      "type": "string",
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    "seating_class": {
+      "type": "string",
+      "enum": [
+        "Economy",
+        "Premium Economy",
+        "Business",
+        "First Class"
+      ]
+    },
+    "origin_city": {
+      "type": "string"
+    },
+    "destination_city": {
+      "type": "string"
+    },
+    "origin_airport": {
+      "type": "string"
+    },
+    "destination_airport": {
+      "type": "string"
+    },
+    "departure_date": {
+      "type": "string"
+    },
+    "return_date": {
+      "type": "string"
+    },
+    "number_stops": {
+      "type": "string",
+      "enum": [
+        "0",
+        "1"
+      ]
+    },
+    "outbound_departure_time": {
+      "type": "string"
+    },
+    "outbound_arrival_time": {
+      "type": "string"
+    },
+    "inbound_arrival_time": {
+      "type": "string"
+    },
+    "inbound_departure_time": {
+      "type": "string"
+    },
+    "price": {
+      "type": "string"
+    },
+    "refundable": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "airlines": {
+      "type": "string",
+      "enum": [
+        "United Airlines",
+        "American Airlines",
+        "Delta Airlines",
+        "Southwest Airlines",
+        "Alaska Airlines",
+        "British Airways",
+        "Air Canada",
+        "Air France"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

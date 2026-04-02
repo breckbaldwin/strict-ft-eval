@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "restaurant_name": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string"
+    },
+    "serves_alcohol": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_live_music": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "phone_number": {
+      "type": "string"
+    },
+    "street_address": {
+      "type": "string"
+    },
+    "party_size": {
+      "type": "string",
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    "price_range": {
+      "type": "string",
+      "enum": [
+        "inexpensive",
+        "moderate",
+        "expensive",
+        "very expensive"
+      ]
+    },
+    "city": {
+      "type": "string"
+    },
+    "cuisine": {
+      "type": "string",
+      "enum": [
+        "Mexican",
+        "Chinese",
+        "Indian",
+        "American",
+        "Italian"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -166,3 +166,22 @@ outline.md
 plan.md
 CLAUDE.md
 scripts/setup_and_delete.py
+
+# Large data (reproducible via scripts/prepare_data.sh)
+data/sgd/
+data/smoke_train.jsonl
+
+# Checkpoints (reproducible via training)
+checkpoints/
+
+# Build artifacts
+results.tgz
+results/baseline_smoke.json
+results/smoke_finetuned.json
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.pdf
+paper/*.synctex*

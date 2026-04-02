@@ -1,0 +1,330 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+% Highlight regressions in tables
+\newcommand{\regress}[1]{\textcolor{red}{\textbf{#1}}}
+\newcommand{\improve}[1]{\textcolor{black}{#1}}
+
+\title{Valid JSON, Wrong Answer:\\Fine-Tuning Degrades Grammar-Role Performance\\at Scale Despite Improved Aggregate Loss}
+
+\author{Breck Baldwin \\
+  Independent Researcher \\
+  New York, NY \\
+  \texttt{breckbaldwin@gmail.com}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Grammar-constrained decoding guarantees syntactically valid structured output from language models. Aggregate loss metrics show clear improvement after LoRA fine-tuning. But do these metrics tell the full story?
+
+We decompose fine-tuning loss by grammar role---structural tokens, schema keys, enumeration values, booleans, and free text---for Qwen~2.5 models fine-tuned to generate JSON at 0.5B, 7B, and 32B parameter scales. At 32B, we find that fine-tuning \emph{degrades} boolean prediction by 130\% on a flight booking schema while aggregate loss improves by 69\%. The model overfits to the majority boolean value in training data. Grammar-constrained decoding masks this regression because both \texttt{True} and \texttt{False} are valid.
+
+The regression emerges only at scale: at 0.5B, boolean performance improves 53\%; at 7B, it stalls; at 32B, it collapses. Larger models have stronger pretrained competencies that fine-tuning can disrupt.
+
+We show that per-grammar-role decomposition is straightforward to compute post-hoc, requires no changes to the training pipeline, and reveals failure modes invisible to standard evaluation. We release code and data to enable this analysis on any fine-tuned structured output model.
+\end{abstract}
+
+\section{Introduction}
+
+Large language models are increasingly used to generate structured output: JSON for APIs, database queries, configuration files, clinical forms. Grammar-constrained decoding systems---Guidance \cite{guidance2024}, Outlines \cite{willard2023outlines}, SGLang \cite{zheng2024sglang}, XGrammar \cite{xgrammar2024}---can guarantee that every generated token is syntactically valid. This is a solved problem.
+
+Fine-tuning with parameter-efficient methods such as LoRA \cite{hu2021lora} improves content quality, as measured by aggregate loss or accuracy metrics. The standard workflow is: fine-tune, observe aggregate loss decrease, confirm valid JSON via constrained decoding, deploy.
+
+This workflow has a gap. Aggregate metrics mix \emph{trivially correct} decisions---structural tokens like \texttt{\{}, \texttt{\}}, \texttt{:}, \texttt{,} that have few valid options---with \emph{substantively uncertain} decisions like enum selection, boolean prediction, and free-text generation. A model can achieve large aggregate improvements by perfecting trivial structural predictions while degrading on the predictions that actually matter. Aggregate metrics will show improvement.
+
+We demonstrate this empirically. Using the Schema-Guided Dialogue dataset \cite{rastogi2020sgd}, we fine-tune Qwen~2.5 Instruct models at three scales (0.5B, 7B, 32B) to generate JSON from dialogue context. We decompose per-token loss by grammar role and find:
+
+\begin{itemize}
+\item At 32B, fine-tuning degrades boolean prediction by 130\% on a flight booking schema (\texttt{refundable}: \texttt{True}/\texttt{False}), while aggregate loss improves by 69\%.
+\item The regression is scale-dependent: at 0.5B, boolean performance improves 53\%; at 7B, it is marginal ($-$10\%); at 32B, it collapses.
+\item Enumeration value prediction stalls at 32B ($-$8.6\%), approaching regression, while improving substantially at smaller scales.
+\item A second schema (restaurant booking) shows no regression---the phenomenon is schema- and data-dependent, reinforcing the need for per-role analysis rather than aggregate evaluation.
+\end{itemize}
+
+Our decomposition method is post-hoc: parse the generated JSON, categorize each token by grammar role, compute per-role loss. It requires no changes to training and works with any model and schema. We release code and data.\footnote{Code and data: \texttt{https://github.com/breckbaldwin/strict-ft-eval}}
+
+\section{Background}
+
+\subsection{Grammar-Constrained Decoding}
+
+Grammar-constrained decoding systems enforce structural validity during generation by masking tokens that would violate the target grammar. Systems including Guidance \cite{guidance2024}, Outlines \cite{willard2023outlines}, and SGLang \cite{zheng2024sglang} guarantee that output conforms to a JSON Schema, SQL grammar, or other formal specification.
+
+These systems prevent \emph{syntactic} errors. They cannot prevent \emph{semantic} errors within the valid output space. A model constrained to valid JSON can produce \texttt{\{"refundable": "True"\}} when the correct answer is \texttt{\{"refundable": "False"\}}---both are valid JSON, both match the schema's enum constraint, but one is wrong.
+
+\subsection{LoRA Fine-Tuning for Structured Output}
+
+Low-Rank Adaptation \cite{hu2021lora} is the standard method for fine-tuning large language models on domain-specific tasks. For structured output, standard practice is: apply LoRA to attention projections, train with cross-entropy loss on target sequences, and evaluate with aggregate metrics (mean loss, exact match, ROUGE).
+
+The implicit assumption is that if aggregate loss improves, all aspects of output quality improve. We show this assumption is violated.
+
+\subsection{JSON as Structured Output}
+
+A JSON document against a fixed schema contains tokens playing distinct grammar roles:
+
+\begin{itemize}
+\item \textbf{Structural}: \texttt{\{}, \texttt{\}}, \texttt{[}, \texttt{]}, \texttt{:}, \texttt{,}---near-deterministic, few valid options
+\item \textbf{Quote}: string delimiters---deterministic
+\item \textbf{Key}: object key characters---constrained to schema-defined keys
+\item \textbf{Enum value}: categorical values from a fixed set
+\item \textbf{Boolean}: \texttt{True} or \texttt{False} strings
+\item \textbf{Free text}: unconstrained string content (names, addresses)
+\item \textbf{Whitespace}: formatting---trivial
+\end{itemize}
+
+These roles differ enormously in difficulty. Structural tokens and whitespace are near-deterministic and contribute many tokens to the sequence. Free text and boolean/enum values carry genuine uncertainty but contribute fewer tokens. Aggregate loss is dominated by the high-token-count trivial roles.
+
+\section{Method: Per-Grammar-Role Decomposition}
+
+\subsection{Grammar Role Assignment}
+
+Given a JSON string and its schema, we assign each \emph{character} a grammar role by walking the string with a recursive-descent parser that tracks:
+
+\begin{enumerate}
+\item Whether the current position is inside a key or value
+\item For values: whether the enclosing key maps to an enum, boolean, or free-text field in the schema
+\item Structural characters, quotes, and whitespace are assigned directly
+\end{enumerate}
+
+\subsection{Mapping to Tokens}
+
+We tokenize the JSON with the model's standard BPE tokenizer. For each token, we determine the character span it covers and assign the grammar role of the token's first character. Tokens spanning multiple grammar roles (e.g., the BPE token \texttt{'":"'} spanning quote + colon + quote) are assigned to the first role.
+
+This is a known limitation of post-hoc analysis: cross-terminal tokens prevent exact per-role attribution. We note that such tokens are a small fraction of the total and that the dominant roles (KEY, ENUM, FREE\_TEXT) rarely share tokens with other roles.
+
+\subsection{Per-Role Loss Computation}
+
+For each example, we compute teacher-forced per-token cross-entropy loss on the target JSON (prompt tokens are masked). We aggregate loss by grammar role:
+
+\begin{equation}
+\mathcal{L}_r = \frac{1}{|T_r|} \sum_{t \in T_r} \ell(t)
+\end{equation}
+
+where $T_r$ is the set of tokens assigned to grammar role $r$ and $\ell(t)$ is the per-token cross-entropy loss.
+
+\subsection{Applicability}
+
+This method works with any fine-tuned model, any JSON schema, and any tokenizer. It requires no modifications to training. The only inputs are: the model, a prompt, the target JSON, and the schema definition. The analysis adds negligible overhead---it is a single forward pass with token-level loss recording.
+
+\section{Experimental Setup}
+
+\subsection{Data}
+
+We use the Schema-Guided Dialogue (SGD) dataset \cite{rastogi2020sgd}, extracting two schemas:
+
+\textbf{Restaurants\_1} (11 keys): 3 enum fields (cuisine, price\_range, party\_size), 2 boolean fields (serves\_alcohol, has\_live\_music), 6 free-text fields. An intuitive domain with moderate schema complexity.
+
+\textbf{Flights\_1} (16 keys): 4 enum fields (passengers, seating\_class, number\_stops, airlines), 1 boolean field (refundable), 11 free-text fields. A complex domain with a high-cardinality enum (8 airlines).
+
+For each schema, we extract 250 training and 50 test examples. Each example pairs a dialogue context with a service result JSON object.
+
+\subsection{Models and Training}
+
+We use Qwen~2.5 Instruct at three scales: 0.5B, 7B, and 32B parameters. Fine-tuning uses standard LoRA via PEFT \cite{peft2023}: rank 16, alpha 32, targeting \texttt{q\_proj} and \texttt{v\_proj}, trained for 10 epochs with learning rate $10^{-4}$. No custom adapter architectures or training modifications.
+
+Grammar-constrained decoding uses llguidance \cite{guidance2024} at inference time. All models produce 100\% valid JSON on held-out data.
+
+\section{Results}
+
+\subsection{Aggregate Metrics Tell a Positive Story}
+
+Table~\ref{tab:aggregate} shows aggregate loss improvement across all conditions. Fine-tuning produces substantial improvements at every scale: 59--81\% reduction in mean loss. All fine-tuned models produce valid JSON. Standard evaluation says: fine-tuning works.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+\textbf{Schema} & \textbf{Scale} & \textbf{Base} & \textbf{FT} & \textbf{Change} \\
+\midrule
+\multirow{3}{*}{Rest.} & 0.5B & 0.970 & 0.394 & $-$59\% \\
+                        & 7B   & 1.090 & 0.359 & $-$67\% \\
+                        & 32B  & 0.856 & 0.370 & $-$57\% \\
+\midrule
+\multirow{3}{*}{Flights} & 0.5B & 0.733 & 0.141 & $-$81\% \\
+                          & 7B   & 0.645 & 0.161 & $-$75\% \\
+                          & 32B  & 0.554 & 0.174 & $-$69\% \\
+\bottomrule
+\end{tabular}
+\caption{Aggregate mean loss (all grammar roles). Fine-tuning improves all conditions. Standard evaluation sees no problems.}
+\label{tab:aggregate}
+\end{table}
+
+\subsection{Per-Grammar-Role Decomposition Reveals a Hidden Regression}
+
+Table~\ref{tab:flights_decomp} decomposes loss by grammar role for the Flights schema. At 32B, boolean prediction loss \emph{increases} from 0.457 to 1.050---a 130\% degradation---while aggregate loss decreases 69\%.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{0.5B}} & \multicolumn{2}{c}{\textbf{7B}} & \multicolumn{2}{c}{\textbf{32B}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+\textbf{Role} & Base & FT & Base & FT & Base & FT \\
+\midrule
+STRUCT  & 4.84 & 0.00 & 6.08 & 0.00 & 5.33 & 0.00 \\
+QUOTE   & 0.13 & 0.00 & 0.16 & 0.00 & 0.10 & 0.00 \\
+KEY     & 1.17 & 0.00 & 0.77 & 0.00 & 0.47 & 0.00 \\
+ENUM    & 0.48 & 0.26 & 0.55 & 0.34 & 0.33 & 0.30 \\
+\textbf{BOOL} & \textbf{0.80} & \textbf{0.37} & \textbf{0.43} & \textbf{0.39} & \textbf{0.46} & \regress{1.05} \\
+FREE    & 1.31 & 0.52 & 1.26 & 0.59 & 1.33 & 0.63 \\
+WS      & 0.04 & 0.00 & 0.04 & 0.00 & 0.02 & 0.00 \\
+\midrule
+TOTAL   & 0.73 & 0.14 & 0.64 & 0.16 & 0.55 & 0.17 \\
+\bottomrule
+\end{tabular}
+\caption{Flights: per-grammar-role loss at three scales. At 32B, boolean loss \regress{increases 130\%} while aggregate loss decreases 69\%. The regression is invisible without decomposition.}
+\label{tab:flights_decomp}
+\end{table}
+
+The Flights schema has one boolean field: \texttt{refundable} (\texttt{True}/\texttt{False}). At 32B, the pretrained model predicts this field reasonably well (0.457 loss). Fine-tuning disrupts this: the model overfits to the majority boolean value in the training data, producing worse predictions than the untrained baseline.
+
+\subsection{The Regression Is Scale-Dependent}
+
+Figure~\ref{fig:scaling} shows boolean prediction change across model scales on the Flights schema:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Scale} & \textbf{Base} & \textbf{FT} & \textbf{Change} \\
+\midrule
+0.5B & 0.796 & 0.371 & $-$53\% \\
+7B   & 0.432 & 0.389 & $-$10\% \\
+32B  & 0.457 & \regress{1.050} & \regress{+130\%} \\
+\bottomrule
+\end{tabular}
+\caption{Boolean (refundable) loss on Flights across scales. At 0.5B, fine-tuning helps substantially. At 7B, it barely helps. At 32B, it causes a severe regression. Larger models have more to lose.}
+\label{fig:scaling}
+\end{table}
+
+At 0.5B, the base model is poor at boolean prediction (0.796 loss) and fine-tuning helps substantially ($-$53\%). At 7B, the base model is better (0.432) and fine-tuning barely helps ($-$10\%). At 32B, fine-tuning \emph{destroys} the base model's boolean competency.
+
+The pattern is intuitive: larger pretrained models have stronger existing competencies. Fine-tuning on a small dataset (250 examples) can override these competencies with memorized patterns. The better the base model already is, the more fine-tuning has to disrupt.
+
+\subsection{Enumeration Values Are Approaching Regression}
+
+A second warning sign appears in the ENUM\_VALUE role on Flights:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Scale} & \textbf{Base} & \textbf{FT} & \textbf{Change} \\
+\midrule
+0.5B & 0.478 & 0.259 & $-$46\% \\
+7B   & 0.554 & 0.337 & $-$39\% \\
+32B  & 0.331 & 0.303 & $-$9\% \\
+\bottomrule
+\end{tabular}
+\caption{Enum value loss on Flights. Improvement diminishes with scale, approaching regression at 32B.}
+\label{tab:enum_trend}
+\end{table}
+
+The improvement from fine-tuning decreases monotonically with scale: $-$46\% at 0.5B, $-$39\% at 7B, $-$9\% at 32B. The Flights schema has high-cardinality enums (8 airlines, 4 seating classes). At 32B, the pretrained model's enum predictions are already reasonable (0.331 loss), and fine-tuning adds negligible value. With more training epochs or slightly different data, this could tip into regression.
+
+\subsection{Not All Schemas Show Regression}
+
+Table~\ref{tab:restaurants_decomp} shows the Restaurants schema, where \emph{no role regresses} at any scale.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{0.5B}} & \multicolumn{2}{c}{\textbf{7B}} & \multicolumn{2}{c}{\textbf{32B}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+\textbf{Role} & Base & FT & Base & FT & Base & FT \\
+\midrule
+STRUCT  & 4.94 & 0.00 & 6.25 & 0.00 & 5.52 & 0.00 \\
+QUOTE   & 0.22 & 0.04 & 0.33 & 0.04 & 0.17 & 0.02 \\
+KEY     & 1.21 & 0.00 & 1.32 & 0.00 & 0.67 & 0.00 \\
+ENUM    & 1.73 & 0.36 & 1.70 & 0.56 & 1.59 & 0.51 \\
+BOOL    & 0.81 & 0.36 & 1.24 & 0.63 & 0.74 & 0.50 \\
+FREE    & 1.76 & 1.21 & 1.86 & 1.05 & 1.71 & 1.11 \\
+WS      & 0.02 & 0.00 & 0.08 & 0.00 & 0.03 & 0.00 \\
+\midrule
+TOTAL   & 0.97 & 0.39 & 1.09 & 0.36 & 0.86 & 0.37 \\
+\bottomrule
+\end{tabular}
+\caption{Restaurants: per-grammar-role loss at three scales. No role regresses. The boolean regression is schema- and data-dependent.}
+\label{tab:restaurants_decomp}
+\end{table}
+
+Restaurants has two boolean fields (serves\_alcohol, has\_live\_music) compared to Flights' one (refundable). The presence or absence of regression depends on the schema, the training data distribution, and the base model's prior competency on each field. This is precisely why per-grammar-role decomposition is necessary: you cannot predict \emph{which} role will regress without measuring it.
+
+\subsection{Why Aggregate Metrics Hide the Regression}
+
+The mechanism is simple. In the Flights 32B case:
+\begin{itemize}
+\item \textbf{STRUCTURAL} tokens: 100 tokens, loss drops from 5.33 to 0.00 ($-$100\%)
+\item \textbf{WHITESPACE}: 1,950 tokens, loss drops from 0.02 to 0.00 ($-$100\%)
+\item \textbf{BOOLEAN}: 50 tokens, loss increases from 0.46 to 1.05 (+130\%)
+\end{itemize}
+
+The massive improvements on high-token-count trivial roles (structural, whitespace) swamp the regression on the low-token-count substantive role (boolean). The aggregate is a weighted average where the weights are token counts, and trivial roles contribute far more tokens than substantive ones.
+
+\section{Discussion}
+
+\subsection{Diagnosis Without Treatment}
+
+This paper identifies a problem: aggregate metrics hide per-grammar-role regressions after fine-tuning. The decomposition method diagnoses the regression but does not treat it.
+
+Once a per-role regression is identified, addressing it is non-trivial. Training longer may worsen the overfit. Training shorter may leave other roles undertrained. Per-role learning rate schedules, per-role early stopping, or targeted data augmentation are possible but add significant complexity to the fine-tuning pipeline. Addressing per-grammar-role regressions during the training process itself, rather than detecting them post-hoc, is an open direction.
+
+\subsection{Implications for Deployment}
+
+Any structured output task where aggregate metrics mix trivially-correct decisions with substantively-uncertain decisions is vulnerable to this failure mode. The harder decisions can regress while aggregate metrics improve.
+
+We suggest per-grammar-role thresholds as deployment criteria:
+\begin{itemize}
+\item Deploy when STRUCTURAL $< 0.01$ and KEY $< 0.1$
+\item Flag for review when ENUM\_VALUE $> 0.3$
+\item Require human verification when BOOLEAN $> 0.5$
+\end{itemize}
+
+Such criteria are more informative than a single aggregate threshold and can be computed with one additional forward pass per evaluation example.
+
+\subsection{The Medical Analogy}
+
+Aggregate loss is a clean bill of health. Per-grammar-role decomposition is the blood panel. A patient---or a model---can appear healthy on aggregate while a specific system is failing. The decomposition costs little and can prevent deploying a model with a critical blind spot.
+
+\section{Related Work}
+
+\textbf{Grammar-constrained decoding.} Guidance \cite{guidance2024}, Outlines \cite{willard2023outlines}, SGLang \cite{zheng2024sglang}, and XGrammar \cite{xgrammar2024} guarantee syntactic validity at decode time. Our work is complementary: we evaluate \emph{content quality} decomposed by grammar role, which constrained decoding cannot assess.
+
+\textbf{LoRA and parameter-efficient fine-tuning.} LoRA \cite{hu2021lora} and its variants (QLoRA \cite{dettmers2023qlora}, DoRA \cite{liu2024dora}) are standard for fine-tuning large models. We use unmodified LoRA and show that per-role regressions arise from the standard training procedure, not from any specific adapter variant.
+
+\textbf{Evaluation methodology for LLMs.} Growing work addresses pitfalls in LLM evaluation: benchmark contamination \cite{jacovi2023contamination}, metric gaming, and the gap between aggregate scores and actual capability. Our contribution is specific to structured output: aggregate loss hides per-grammar-role regressions.
+
+\textbf{Per-class analysis in classification.} Decomposing performance by class is standard in classification (confusion matrices, per-class F1). Our work applies this principle to structured generation, where ``classes'' are grammar roles rather than output labels.
+
+\textbf{Calibration and confidence estimation.} Work on LLM calibration \cite{kadavath2022calibration} examines whether model confidence matches accuracy. Our per-grammar-role decomposition is related: it reveals where the model's predictions are reliable (structural tokens) versus unreliable (content tokens), at a finer granularity than aggregate calibration.
+
+\section{Conclusion}
+
+Standard evaluation of fine-tuned structured output models hides per-grammar-role regressions behind aggregate metrics. We demonstrate that a 32B model fine-tuned for JSON extraction degrades boolean prediction by 130\% while appearing to improve by 69\% overall. The regression emerges at scale, is schema-dependent, and is completely invisible to aggregate evaluation.
+
+A simple post-hoc decomposition---parsing output by grammar role and computing per-role loss---reveals the regression and costs one forward pass. We recommend this decomposition as standard practice for any structured output fine-tuning task.
+
+\section*{Acknowledgments}
+
+The author used Claude (Anthropic) for code development and manuscript preparation. Experiments were conducted on RunPod GPU instances. The Schema-Guided Dialogue dataset \cite{rastogi2020sgd} is used under CC BY-SA 4.0 license.
+
+\bibliography{references}
+\bibliographystyle{plainnat}
+
+\end{document}
