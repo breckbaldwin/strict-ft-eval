@@ -1,0 +1,6 @@
+torch>=2.0
+transformers>=4.40
+peft>=0.10
+datasets
+rouge-score
+llguidance
