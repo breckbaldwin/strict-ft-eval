@@ -160,7 +160,7 @@ def main():
 
     dtype = torch.bfloat16 if args.device == "cuda" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=dtype, trust_remote_code=True
+        args.model, dtype=dtype, trust_remote_code=True
     ).to(args.device)
 
     # Apply LoRA

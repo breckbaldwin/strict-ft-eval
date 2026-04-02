@@ -331,7 +331,7 @@ def load_model(model_name: str, checkpoint: str | None, device: str):
 
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype=dtype, trust_remote_code=True
+        model_name, dtype=dtype, trust_remote_code=True
     ).to(device)
 
     if checkpoint:

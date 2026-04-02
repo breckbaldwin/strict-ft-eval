@@ -20,18 +20,12 @@ pip install -r requirements.txt
 
 Uses the [Schema-Guided Dialogue (SGD)](https://github.com/google-research-datasets/dstc8-schema-guided-dialogue) dataset (Rastogi et al., AAAI 2020, CC BY-SA 4.0).
 
-```bash
-# Download SGD dataset
-git clone https://github.com/google-research-datasets/dstc8-schema-guided-dialogue.git data/sgd
-
-# Extract Restaurants_1 (11 keys, 3 enum, 2 boolean, 6 free text)
-python src/prepare_data.py --service Restaurants_1 --split train --max 300
-
-# Extract Flights_1 (16 keys, 4 enum, 1 boolean, 11 free text)
-python src/prepare_data.py --service Flights_1 --split train --max 300
-```
+`bash scripts/prepare_data.sh`
 
 ## Local Usage
+
+The Qwen2.5-0.5B-Instruct will probably run on a 16G laptop. 
+
 
 ```bash
 # Per-grammar-role decomposition on a baseline model
