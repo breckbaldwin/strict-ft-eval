@@ -52,13 +52,21 @@ run_train() {
     local model=$1 scale=$2 data=$3 label=$4
     echo ""
     echo ">>> [$scale] LoRA training: $label ($EPOCHS epochs)"
+
+    # 32B needs gradient checkpointing and shorter sequences to fit in 80GB
+    local extra_args=""
+    if [ "$scale" = "32b" ]; then
+        extra_args="--gradient-checkpointing --max-seq-len 1024"
+    fi
+
     python src/train.py \
         --model "$model" \
         --data "$data" \
         --epochs $EPOCHS \
         --device $DEVICE \
         --checkpoint-dir "checkpoints" \
-        --checkpoint-prefix "${scale}_${label}_lora"
+        --checkpoint-prefix "${scale}_${label}_lora" \
+        $extra_args
 }
 
 run_finetuned_decompose() {

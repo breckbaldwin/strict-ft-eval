@@ -142,6 +142,8 @@ def main():
     parser.add_argument("--lora-targets", default="q_proj,v_proj",
                         help="Comma-separated LoRA target modules")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda", "mps"])
+    parser.add_argument("--gradient-checkpointing", action="store_true",
+                        help="Enable gradient checkpointing (saves VRAM, slower)")
     parser.add_argument("--checkpoint-dir", default="checkpoints")
     parser.add_argument("--checkpoint-prefix", default="lora")
     args = parser.parse_args()
@@ -174,6 +176,12 @@ def main():
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
+
+    # Gradient checkpointing saves VRAM at the cost of ~20% slower training
+    if args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
+        print("Gradient checkpointing: enabled")
 
     # Load data
     dataset = JsonExtractionDataset(args.data, tokenizer, args.max_seq_len)
