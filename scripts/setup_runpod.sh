@@ -50,7 +50,7 @@ cd strict-ft-eval
 
 # Install dependencies
 echo "Installing Python dependencies..."
-pip install -q torch transformers peft datasets llguidance
+pip install -q torch transformers peft datasets llguidance slotloss
 
 # Verify
 echo ""
