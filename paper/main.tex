@@ -15,7 +15,7 @@
 \newcommand{\regress}[1]{\textcolor{red}{\textbf{#1}}}
 \newcommand{\improve}[1]{\textcolor{black}{#1}}
 
-\title{Valid JSON, Wrong Answer:\\Fine-Tuning Degrades Grammar-Role Performance\\at Scale Despite Improved Aggregate Loss}
+\title{Valid JSON, Wrong Answer:\\Per-Role Regression Detection and\\Linguistic Presupposition Labeling for Structured Output}
 
 \author{Breck Baldwin \\
   Independent Researcher \\
@@ -26,13 +26,13 @@
 \maketitle
 
 \begin{abstract}
-Grammar-constrained decoding guarantees syntactically valid structured output from language models. Aggregate loss metrics show clear improvement after LoRA fine-tuning. But do these metrics tell the full story?
+Grammar-constrained decoding guarantees syntactically valid structured output from language models. Aggregate loss metrics show clear improvement after LoRA fine-tuning. But a considerable surprise hides in broad metric improvement---structured components don't necessarily share in the benefits of fine-tuning, and the result gets worse with scale.
 
-We decompose fine-tuning loss by grammar role---structural tokens, schema keys, enumeration values, booleans, and free text---for Qwen~2.5 models fine-tuned to generate JSON at 0.5B, 7B, and 32B parameter scales. At 32B, we find that fine-tuning \emph{degrades} boolean prediction by 130\% on a flight booking schema while aggregate loss improves by 69\%. The model overfits to the majority boolean value in training data. Grammar-constrained decoding masks this regression because both \texttt{True} and \texttt{False} are valid.
+We decompose fine-tuning loss by grammar role---structural tokens, schema keys, enumeration values, booleans, and free text---for Qwen~2.5 models fine-tuned to generate JSON at 0.5B, 7B, and 32B parameter scales. At 32B, we find that fine-tuning \emph{degrades} boolean prediction by 130\% on a flight booking schema while aggregate loss improves by 69\%. The model overfits to the majority boolean value in training data.
 
-The regression emerges only at scale: at 0.5B, boolean performance improves 53\%; at 7B, it stalls; at 32B, it collapses. Larger models have stronger pretrained competencies that fine-tuning can disrupt.
+The regression emerges only at scale: at 0.5B, boolean performance improves 53\%; at 7B, it stalls; at 32B, it collapses. Lexical analysis reveals the root cause: 77\% of training examples force the model to predict a field value with no supporting evidence in the input. We propose \emph{presupposition labeling}---relabeling underspecified training targets as \texttt{ambiguous}---which completely eliminates the regression with no architectural changes.
 
-We show that per-grammar-role decomposition is straightforward to compute post-hoc, requires no changes to the training pipeline, and reveals failure modes invisible to standard evaluation. We release code and data to enable this analysis on any fine-tuned structured output model.
+We show that per-grammar-role decomposition is straightforward to compute post-hoc, reveals failure modes invisible to standard evaluation, and can motivate targeted mitigations. We release code, data, and the PyPI module \texttt{slotloss} to enable this analysis on any fine-tuned structured output model.
 \end{abstract}
 
 \section{Introduction}
@@ -60,11 +60,11 @@ Our decomposition method is post-hoc: parse the generated JSON, categorize each 
 
 Grammar-constrained decoding systems enforce structural validity during generation by masking tokens that would violate the target grammar. Systems including Guidance \cite{guidance2024}, Outlines \cite{willard2023outlines}, and SGLang \cite{zheng2024sglang} guarantee that output conforms to a JSON Schema, SQL grammar, or other formal specification.
 
-These systems prevent \emph{syntactic} errors. They cannot prevent \emph{semantic} errors within the valid output space. A model constrained to valid JSON can produce \texttt{\{"refundable": "True"\}} when the correct answer is \texttt{\{"refundable": "False"\}}---both are valid JSON, both match the schema's enum constraint, but one is wrong.
+These systems prevent \emph{syntactic} errors. They cannot prevent \emph{semantic} errors within the valid output space. A model constrained to valid JSON can produce \texttt{\{"refundable": "True"\}} when the correct answer is \texttt{\{"refundable": "False"\}}---both are valid JSON, both match the schema's constraint, but one is wrong. 
 
 \subsection{LoRA Fine-Tuning for Structured Output}
 
-Low-Rank Adaptation \cite{hu2021lora} is the standard method for fine-tuning large language models on domain-specific tasks. For structured output, standard practice is: apply LoRA to attention projections, train with cross-entropy loss on target sequences, and evaluate with aggregate metrics (mean loss, exact match, ROUGE).
+Low-Rank Adaptation \cite{hu2021lora} is a standard method for fine-tuning large language models on domain-specific tasks. For structured output, standard practice is: apply LoRA to attention projections, train with cross-entropy loss on target sequences, and evaluate with aggregate metrics (mean loss, exact match, ROUGE).
 
 The implicit assumption is that if aggregate loss improves, all aspects of output quality improve. We show this assumption is violated.
 
@@ -82,7 +82,7 @@ A JSON document against a fixed schema contains tokens playing distinct grammar 
 \item \textbf{Whitespace}: formatting---trivial
 \end{itemize}
 
-These roles differ enormously in difficulty. Structural tokens and whitespace are near-deterministic and contribute many tokens to the sequence. Free text and boolean/enum values carry genuine uncertainty but contribute fewer tokens. Aggregate loss is dominated by the high-token-count trivial roles.
+These roles differ enormously in difficulty. Structural tokens and whitespace are near-deterministic and contribute many tokens to the sequence. Free text and boolean/enum values carry genuine uncertainty but contribute fewer tokens. Aggregate loss can be dominated by the high-token-count trivial roles or not. Our observations are very schema/data dependent.
 
 \section{Method: Per-Grammar-Role Decomposition}
 
@@ -100,7 +100,9 @@ Given a JSON string and its schema, we assign each \emph{character} a grammar ro
 
 We tokenize the JSON with the model's standard BPE tokenizer. For each token, we determine the character span it covers and assign the grammar role of the token's first character. Tokens spanning multiple grammar roles (e.g., the BPE token \texttt{'":"'} spanning quote + colon + quote) are assigned to the first role.
 
-This is a known limitation of post-hoc analysis: cross-terminal tokens prevent exact per-role attribution. We note that such tokens are a small fraction of the total and that the dominant roles (KEY, ENUM, FREE\_TEXT) rarely share tokens with other roles.
+This is a known limitation of post-hoc analysis: cross-terminal tokens prevent exact per-role attribution. We note that such tokens are a small fraction of the total and that the dominant roles (KEY, ENUM, FREE\_TEXT) rarely share tokens with other roles. 
+
+Note that \textbf{Boolean} for this experiment had a 1-1 mapping from BPE tokenization to JSON terminal across all three Qwen models so the result is not an artifact of surface tokenization differences. 
 
 \subsection{Per-Role Loss Computation}
 
@@ -188,7 +190,7 @@ TOTAL   & 0.73 & 0.14 & 0.64 & 0.16 & 0.55 & 0.17 \\
 \label{tab:flights_decomp}
 \end{table}
 
-The Flights schema has one boolean field: \texttt{refundable} (\texttt{True}/\texttt{False}). At 32B, the pretrained model predicts this field reasonably well (0.457 loss). Fine-tuning disrupts this: the model overfits to the majority boolean value in the training data, producing worse predictions than the untrained baseline.
+The Flights schema has one boolean field: \texttt{refundable} (\texttt{True}/\texttt{False}). At 32B, the pretrained model predicts this field reasonably well (0.457 loss). Fine-tuning disrupts this: the model most likely overfits to the majority boolean value in the training data, producing worse predictions than the untrained baseline. 
 
 \subsection{The Regression Is Scale-Dependent}
 
@@ -211,6 +213,8 @@ Figure~\ref{fig:scaling} shows boolean prediction change across model scales on 
 \end{table}
 
 At 0.5B, the base model is poor at boolean prediction (0.796 loss) and fine-tuning helps substantially ($-$53\%). At 7B, the base model is better (0.432) and fine-tuning barely helps ($-$10\%). At 32B, fine-tuning \emph{destroys} the base model's boolean competency.
+
+In more detail, training data contains 76\% False, 24\% True for the refundable field. The fine-tuned 32B model's boolean loss (1.05) is consistent with assigning approximately 2\% probability to True — far more skewed than the training distribution itself. Fine-tuning amplified the majority-class bias rather than learning the conditional distribution.
 
 The pattern is intuitive: larger pretrained models have stronger existing competencies. Fine-tuning on a small dataset (250 examples) can override these competencies with memorized patterns. The better the base model already is, the more fine-tuning has to disrupt.
 
@@ -279,11 +283,80 @@ The massive improvements on high-token-count trivial roles (structural, whitespa
 
 \section{Discussion}
 
-\subsection{Diagnosis Without Treatment}
+\subsection{Why the Boolean Regresses: Lexical Analysis}
 
-This paper identifies a problem: aggregate metrics hide per-grammar-role regressions after fine-tuning. The decomposition method diagnoses the regression but does not treat it.
+To understand the regression mechanism, we examined the training data for lexical support of the \texttt{refundable} field. The training set contains 76\% False and 24\% True values. We categorized each example by whether the conversation contains any discussion of refundability:
 
-Once a per-role regression is identified, addressing it is non-trivial. Training longer may worsen the overfit. Training shorter may leave other roles undertrained. Per-role learning rate schedules, per-role early stopping, or targeted data augmentation are possible but add significant complexity to the fine-tuning pipeline. Addressing per-grammar-role regressions during the training process itself, rather than detecting them post-hoc, is an open direction.
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Context} & \textbf{True} & \textbf{False} \\
+\midrule
+Refundability discussed (57 examples) & 47\% & 53\% \\
+Not discussed (193 examples) & 17\% & 83\% \\
+\bottomrule
+\end{tabular}
+\caption{Boolean value distribution conditioned on lexical support. When refundability is discussed, the distribution is roughly balanced. When not discussed, the field is a property of the API result with no conversational cue.}
+\label{tab:lexical}
+\end{table}
+
+When users explicitly discuss refundability (``I need refundable tickets''), the True/False distribution is roughly 50/50 and the model has lexical cues to predict from. But in 77\% of examples (193/250), refundability is never mentioned --- the \texttt{refundable} field is simply a property of the flight returned by the API, with no signal in the conversation to predict it from.
+
+This means 54\% of all True cases (32/59) have \emph{no lexical support} in the input. The ``correct'' prediction for these cases is genuine uncertainty --- approximately $-\log(0.5) = 0.69$ loss if the model honestly represents its ignorance. Instead, the fine-tuned 32B model assigns approximately 2\% probability to True (consistent with observed loss of 1.05), far more extreme than either the training distribution (24\% True) or the conversational evidence.
+
+Fine-tuning does not merely memorize the training distribution --- it \emph{amplifies} the majority-class bias. The gradient signal from 193 undiscussable examples overwhelms the 57 examples with genuine lexical cues, pushing the model toward false confidence on an inherently uncertain field.
+
+\subsection{Presupposition Labeling: A Mitigation}
+
+The lexical analysis suggests a mitigation: if the input does not provide evidence for a field's value, the training label should reflect this rather than forcing a commitment. We draw on the \emph{uniqueness presupposition} from pronoun resolution \cite{baldwin1997cogniac}: a singular pronoun presupposes exactly one valid referent; when multiple referents are equally valid, the system should abstain rather than guess.
+
+Applied to structured output: for each constrained field, we ask whether the input provides sufficient evidence to determine the value. If not, we relabel the training target as \texttt{ambiguous} --- a third option alongside the original values. For the \texttt{refundable} field, the 57 examples where refundability is discussed retain their True/False labels; the 193 examples where it is not discussed are relabeled to \texttt{ambiguous}. The schema is updated accordingly: \texttt{refundable: ["True", "False", "ambiguous"]}.
+
+We call this \textbf{presupposition labeling}: expanding the label set based on whether the input satisfies the evidential presupposition for a field's value.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Scale} & \textbf{2-way Std LoRA} & \textbf{3-way Std LoRA} & \textbf{Change} \\
+\midrule
+0.5B & 0.26 & 0.21 & $-$19\% \\
+7B   & 0.34 & 0.27 & $-$21\% \\
+32B  & \regress{1.05 (+130\%)} & \improve{0.19 (no regression)} & \textbf{eliminated} \\
+\bottomrule
+\end{tabular}
+\caption{ENUM/BOOLEAN loss with and without presupposition labeling. At 32B, the +130\% regression is completely eliminated. No architectural changes --- only the training labels are modified.}
+\label{tab:pcl}
+\end{table}
+
+Table~\ref{tab:pcl} shows the result: presupposition labeling \textbf{completely eliminates the boolean regression} at 32B. Standard LoRA with 3-way labels achieves 0.19 ENUM loss --- better than any 2-way condition --- with no regression at any scale. The model learns to output \texttt{ambiguous} for undiscussed cases instead of memorizing the majority class.
+
+Critically, this requires \emph{no changes to the model architecture or training procedure}. Only the training labels are modified. The regression was not caused by the training method --- it was caused by training labels that forced commitment on underspecified inputs. Presupposition labeling is a standalone data preparation technique compatible with any fine-tuning method.
+
+This does not diminish the value of per-grammar-role decomposition: without the decomposition, the regression would not have been detected, and without the lexical analysis it motivated, the labeling problem would not have been identified. The diagnostic method remains essential even when the treatment is simple.
+
+\subsection{Presupposition Labeling as a Third Category}
+
+Presupposition labeling is neither supervised labeling nor an autoregressive technique. It occupies a distinct category:
+
+\begin{itemize}
+\item \textbf{Autoregressive training}: the signal comes from predicting the next token given preceding context.
+\item \textbf{Supervised labeling}: the signal comes from human annotator judgment on individual examples.
+\item \textbf{Presupposition labeling}: the signal comes from the structural relationship between the schema and the input. The schema defines what values are valid; the presupposition check determines whether the input \emph{licenses} commitment to any specific value. No human judges individual examples --- a rule derived from the schema-input pair is applied uniformly.
+\end{itemize}
+
+The JSON schema already operates outside the autoregressive framework: grammar-constrained decoding restricts what tokens the model may produce. Presupposition labeling extends this principle to training: the schema restricts not only what values are \emph{structurally valid} but which training examples provide \emph{evidential license} to commit to a specific value. This is a schema-mediated evidential constraint on the training signal.
+
+In our experiment, the presupposition check is implemented as a lexical cue (does the conversation mention ``refund''?). This is a crude proxy, but the principle is general: for any constrained field, one can ask whether the input contains evidence distinguishing among the field's allowed values. More sophisticated implementations could derive presupposition checks automatically from the schema --- for example, by measuring mutual information between input features and field values, and relabeling examples where the mutual information is below a threshold.
+
+The connection to linguistic theory is direct. CogNIAC's uniqueness presupposition \cite{baldwin1997cogniac} treats ambiguity as a semantic violation, not uncertainty to be resolved: if multiple referents are equally valid for a singular pronoun, the system halts. Presupposition labeling applies the same principle to structured output: if the input does not determine a field's value, the training signal should encode abstention (\texttt{ambiguous}), not force a commitment that the model can only satisfy by memorizing the majority class.
+
+\subsection{Remaining Open Directions}
+
+Presupposition labeling addresses regressions caused by underspecified inputs. Other sources of per-role regression --- such as gradient domination by trivial structural tokens, or overfitting on small enum sets --- may require different interventions. Per-role learning rate schedules, per-role early stopping, or training-time structural awareness are potential directions. Addressing per-grammar-role regressions during the training process itself, rather than through data relabeling alone, remains an open problem.
 
 \subsection{Implications for Deployment}
 
@@ -318,7 +391,11 @@ Aggregate loss is a clean bill of health. Per-grammar-role decomposition is the 
 
 Standard evaluation of fine-tuned structured output models hides per-grammar-role regressions behind aggregate metrics. We demonstrate that a 32B model fine-tuned for JSON extraction degrades boolean prediction by 130\% while appearing to improve by 69\% overall. The regression emerges at scale, is schema-dependent, and is completely invisible to aggregate evaluation.
 
-A simple post-hoc decomposition---parsing output by grammar role and computing per-role loss---reveals the regression and costs one forward pass. We recommend this decomposition as standard practice for any structured output fine-tuning task.
+A simple post-hoc decomposition---parsing output by grammar role and computing per-role loss---reveals the regression and costs one forward pass. Lexical analysis of the training data reveals the root cause: 77\% of training examples force the model to predict a field value with no supporting evidence in the input.
+
+We show that \emph{presupposition labeling}---relabeling underspecified training targets as \texttt{ambiguous}---completely eliminates the regression with no architectural changes. The fix is a data preparation technique, not a model modification. But the fix was only possible because per-grammar-role decomposition detected the regression and motivated the analysis that identified its cause.
+
+We recommend per-grammar-role decomposition as standard practice for structured output fine-tuning, and presupposition labeling as a principled approach to fields whose values are not always determinable from the input.
 
 \section*{Acknowledgments}
 
