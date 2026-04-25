@@ -29,6 +29,9 @@ RESTAURANTS_SCHEMA=data/Restaurants_1_schema.json
 FLIGHTS_TRAIN=data/Flights_1_train.jsonl
 FLIGHTS_TEST=data/Flights_1_test.jsonl
 FLIGHTS_SCHEMA=data/Flights_1_schema.json
+CUAD_TRAIN=data/cuad_train.jsonl
+CUAD_TEST=data/cuad_test.jsonl
+CUAD_SCHEMA=data/cuad_schema.json
 
 mkdir -p results checkpoints
 
@@ -94,14 +97,17 @@ run_scale() {
     # --- Baseline decomposition ---
     run_baseline_decompose "$model" "$scale" "$RESTAURANTS_TEST" "$RESTAURANTS_SCHEMA" "restaurants"
     run_baseline_decompose "$model" "$scale" "$FLIGHTS_TEST" "$FLIGHTS_SCHEMA" "flights"
+    run_baseline_decompose "$model" "$scale" "$CUAD_TEST" "$CUAD_SCHEMA" "cuad"
 
     # --- Training ---
     run_train "$model" "$scale" "$RESTAURANTS_TRAIN" "restaurants"
     run_train "$model" "$scale" "$FLIGHTS_TRAIN" "flights"
+    run_train "$model" "$scale" "$CUAD_TRAIN" "cuad"
 
     # --- Fine-tuned decomposition ---
     run_finetuned_decompose "$model" "$scale" "$RESTAURANTS_TEST" "$RESTAURANTS_SCHEMA" "restaurants" "$EPOCHS"
     run_finetuned_decompose "$model" "$scale" "$FLIGHTS_TEST" "$FLIGHTS_SCHEMA" "flights" "$EPOCHS"
+    run_finetuned_decompose "$model" "$scale" "$CUAD_TEST" "$CUAD_SCHEMA" "cuad" "$EPOCHS"
 
     echo ""
     echo ">>> [$scale] Complete. Results in results/${scale}_*.json"
@@ -118,8 +124,10 @@ run_decompose_only() {
 
     run_baseline_decompose "$model" "$scale" "$RESTAURANTS_TEST" "$RESTAURANTS_SCHEMA" "restaurants"
     run_baseline_decompose "$model" "$scale" "$FLIGHTS_TEST" "$FLIGHTS_SCHEMA" "flights"
+    run_baseline_decompose "$model" "$scale" "$CUAD_TEST" "$CUAD_SCHEMA" "cuad"
     run_finetuned_decompose "$model" "$scale" "$RESTAURANTS_TEST" "$RESTAURANTS_SCHEMA" "restaurants" "$EPOCHS"
     run_finetuned_decompose "$model" "$scale" "$FLIGHTS_TEST" "$FLIGHTS_SCHEMA" "flights" "$EPOCHS"
+    run_finetuned_decompose "$model" "$scale" "$CUAD_TEST" "$CUAD_SCHEMA" "cuad" "$EPOCHS"
 }
 
 # ---------------------------------------------------------------------------

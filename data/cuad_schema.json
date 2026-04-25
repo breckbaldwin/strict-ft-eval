@@ -1,0 +1,112 @@
+{
+  "type": "object",
+  "title": "Contract clause presence + jurisdiction summary",
+  "required": [
+    "has_anti_assignment",
+    "has_cap_on_liability",
+    "has_audit_rights",
+    "has_exclusivity",
+    "has_change_of_control",
+    "has_non_compete",
+    "has_liquidated_damages",
+    "has_most_favored_nation",
+    "governing_law",
+    "renewal_term",
+    "expiration_type"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "has_anti_assignment": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_cap_on_liability": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_audit_rights": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_exclusivity": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_change_of_control": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_non_compete": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_liquidated_damages": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "has_most_favored_nation": {
+      "type": "string",
+      "enum": [
+        "True",
+        "False"
+      ]
+    },
+    "governing_law": {
+      "type": "string",
+      "enum": [
+        "New York",
+        "California",
+        "Delaware",
+        "Texas",
+        "Florida",
+        "Pennsylvania",
+        "People's Republic of China",
+        "Nevada",
+        "Ontario, Canada",
+        "Illinois",
+        "other",
+        "not_specified"
+      ]
+    },
+    "renewal_term": {
+      "type": "string",
+      "enum": [
+        "successive_1_year",
+        "successive_multi_year",
+        "fixed_term",
+        "perpetual",
+        "other",
+        "not_specified"
+      ]
+    },
+    "expiration_type": {
+      "type": "string",
+      "enum": [
+        "perpetual",
+        "specific_date",
+        "not_specified"
+      ]
+    }
+  }
+}

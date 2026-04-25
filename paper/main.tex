@@ -270,6 +270,34 @@ TOTAL   & 0.97 & 0.39 & 1.09 & 0.36 & 0.86 & 0.37 \\
 
 Restaurants has two boolean fields (serves\_alcohol, has\_live\_music) compared to Flights' one (refundable). The presence or absence of regression depends on the schema, the training data distribution, and the base model's prior competency on each field. This is precisely why per-grammar-role decomposition is necessary: you cannot predict \emph{which} role will regress without measuring it.
 
+\subsection{Cross-Domain Validation: Contract Clause Extraction (CUAD)}\label{sec:cuad}
+
+To test whether the per-role phenomena generalise beyond task-oriented dialogue, we apply the decomposition method to the Contract Understanding Atticus Dataset \cite{hendrycks2021cuad} -- a corpus of 510 commercial contracts with human-annotated clause-level labels. We construct an 11-field JSON schema: eight boolean clause-presence indicators spanning 4\% to 78\% Yes-rate, and three normalised enum fields (\texttt{governing\_law}, 12 values; \texttt{renewal\_term}, 6; \texttt{expiration\_type}, 3). The enum fields include a \texttt{not\_specified} value -- the natural analog of the \texttt{ambiguous} label introduced for presupposition labelling (Section~\ref{sec:pcl}). The task is document-level: given a contract excerpt, output the JSON. Train/test split is 144/49, stratified by total True-count on booleans; input shape is considerably longer ($\sim$2k tokens) than the dialogue schemas ($\sim$0.5k tokens).
+
+\textbf{Per-field baseline accuracy at 0.5B ranges from 2\% to 94\%.} Aggregate accuracy on the 11-field schema would average these to an uninformative middle value; the aggregate metric obscures nearly every field-level story. This reproduces the paper's central thesis on a document-level input, demonstrating that the pattern is not an artefact of dialogue state tracking. Crucially, aggregate accuracy at 7B (65.1\%) and 32B (66.4\%) is nearly identical -- a developer using aggregate metrics would conclude 7B is sufficient. Per-field analysis contradicts this conclusion.
+
+\textbf{Boolean fields partition into two regimes by the sign of the pretrained prior.} For fields where the base model's default (False) matches the majority gold class -- e.g., \texttt{has\_most\_favored\_nation} with 4\% True gold -- baseline accuracy is 94\% across all scales and per-field diagnostics confirm strong calibration. For fields where the base model's default contradicts the majority gold class -- e.g., \texttt{has\_anti\_assignment} with 78\% True gold -- baseline accuracy collapses to 27\% at 0.5B and \emph{further regresses to 22\% at 7B} before partially recovering to 35\% at 32B. The 7B dip is accompanied by a mean margin of 0.99: the model becomes \emph{confidently more wrong} at intermediate scale before partially recovering. This non-monotonic failure is invisible to aggregate accuracy, which rises monotonically with scale on this schema.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Field} & \textbf{0.5B} & \textbf{7B} & \textbf{32B} \\
+\midrule
+\texttt{has\_most\_favored\_nation}  & 94\% (0.36) & 96\% (0.90) & 94\% (0.93) \\
+\texttt{has\_liquidated\_damages}    & 86\% (0.51) & 92\% (0.73) & 90\% (0.83) \\
+\texttt{has\_exclusivity}            & 67\% (0.23) & 86\% (0.76) & 92\% (0.79) \\
+\texttt{has\_anti\_assignment}       & 27\% (0.19) & \regress{22\% (0.99)} & 35\% (0.93) \\
+\texttt{governing\_law} (12-way)     & 18\% (0.20) & 24\% (0.57) & 27\% (0.69) \\
+\texttt{renewal\_term} (6-way)       & \regress{2\% (0.45)} & 53\% (0.64) & 55\% (0.70) \\
+\texttt{expiration\_type} (3-way)    & 49\% (0.25) & 67\% (0.68) & 63\% (0.76) \\
+\bottomrule
+\end{tabular}
+\caption{CUAD baseline accuracy (mean margin) across scales for selected fields. Regressions in red. \texttt{has\_anti\_assignment} shows per-field regression from 0.5B to 7B invisible to the $\sim$65\% aggregate at both scales; \texttt{renewal\_term} shows a scale-dependent acquisition of the \texttt{not\_specified} sentinel between 0.5B and 7B.}
+\label{tab:cuad_per_field_scale}
+\end{table}
+
 \subsection{Why Aggregate Metrics Hide the Regression}
 
 The mechanism is simple. In the Flights 32B case:
@@ -308,7 +336,7 @@ This means 54\% of all True cases (32/59) have \emph{no lexical support} in the 
 
 Fine-tuning does not merely memorize the training distribution --- it \emph{amplifies} the majority-class bias. The gradient signal from 193 undiscussable examples overwhelms the 57 examples with genuine lexical cues, pushing the model toward false confidence on an inherently uncertain field.
 
-\subsection{Presupposition Labeling: A Mitigation}
+\subsection{Presupposition Labeling: A Mitigation}\label{sec:pcl}
 
 The lexical analysis suggests a mitigation: if the input does not provide evidence for a field's value, the training label should reflect this rather than forcing a commitment. We draw on the \emph{uniqueness presupposition} from pronoun resolution \cite{baldwin1997cogniac}: a singular pronoun presupposes exactly one valid referent; when multiple referents are equally valid, the system should abstain rather than guess.
 
@@ -338,6 +366,8 @@ Critically, this requires \emph{no changes to the model architecture or training
 
 This does not diminish the value of per-grammar-role decomposition: without the decomposition, the regression would not have been detected, and without the lexical analysis it motivated, the labeling problem would not have been identified. The diagnostic method remains essential even when the treatment is simple.
 
+\textbf{Extending to CUAD reveals field-specific variance.} Applying PCL fine-tuning to the 11-field CUAD schema (Section~\ref{sec:cuad}) across the same three scales produces a mixed picture. Aggregate accuracy rises modestly (+7/+2/+10 pp at 0.5B/7B/32B, vs. +32/+19/+20 on Flights), and the per-field breakdown explains why: PCL-FT's benefit is concentrated on fields whose pretrained prior conflicts with the task distribution (\texttt{has\_anti\_assignment} 27→86\% at 32B; \texttt{governing\_law} 18→53\% at 32B). On fields whose pretrained behaviour was already correct (\texttt{has\_most\_favored\_nation}, \texttt{has\_liquidated\_damages}), PCL-FT is neutral. On some fields PCL-FT \emph{regresses} (\texttt{expiration\_type} falls from 49/67/63\% baseline to 45/47/49\% after PCL-FT; \texttt{has\_non\_compete} drops at 0.5B and 7B). The regressions appear concentrated where the training signal available to the model is weak relative to the field's semantic requirements -- plausibly because we truncate contracts to the first $\sim$2000 tokens for training efficiency and the diagnostic clauses often sit deeper in the document. The finding is important for the deployment posture: PCL-FT is not a uniform win, and per-field evaluation remains necessary even after intervention.
+
 \subsection{Presupposition Labeling as a Third Category}
 
 Presupposition labeling is neither supervised labeling nor an autoregressive technique. It occupies a distinct category:
@@ -353,6 +383,92 @@ The JSON schema already operates outside the autoregressive framework: grammar-c
 In our experiment, the presupposition check is implemented as a lexical cue (does the conversation mention ``refund''?). This is a crude proxy, but the principle is general: for any constrained field, one can ask whether the input contains evidence distinguishing among the field's allowed values. More sophisticated implementations could derive presupposition checks automatically from the schema --- for example, by measuring mutual information between input features and field values, and relabeling examples where the mutual information is below a threshold.
 
 The connection to linguistic theory is direct. CogNIAC's uniqueness presupposition \cite{baldwin1997cogniac} treats ambiguity as a semantic violation, not uncertainty to be resolved: if multiple referents are equally valid for a singular pronoun, the system halts. Presupposition labeling applies the same principle to structured output: if the input does not determine a field's value, the training signal should encode abstention (\texttt{ambiguous}), not force a commitment that the model can only satisfy by memorizing the majority class.
+
+\subsection{Margin-Based Evidential Gating at Inference Time}\label{sec:gating}
+
+Presupposition labeling eliminates the regression at training time. A complementary question is whether the evidential signal is already present in the pretrained output distribution -- and can be exploited at inference without fine-tuning.
+
+At each constrained-field position, we measure the margin $m = p_1 - p_2$, where $p_1$ and $p_2$ are the top and second-highest probabilities over the field's allowed values. Low margin indicates the model is indifferent between candidates; high margin indicates a confident commitment. We commit to the top value when $m \ge \theta$ and abstain otherwise.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+ & \textbf{Gold = True/False} & \textbf{Gold = ambiguous} & \\
+\textbf{Group} & mean margin & mean margin & baseline acc \\
+\midrule
+Discussed (Flights, $n=14$) & 0.45 & --- & 60\% \\
+Undiscussed (Flights, $n=36$) & --- & 0.20 & 0\% (forced commit) \\
+\bottomrule
+\end{tabular}
+\caption{Base Qwen 2.5 0.5B, Flights\_1 \texttt{refundable}. The margin doubles when the input contains lexical evidence (discussed); it stays flat when the field is underspecified. The signal for evidential gating is present in the base model without any fine-tuning.}
+\label{tab:gating_flights}
+\end{table}
+
+On Flights\_1, the margin discriminates discussed from undiscussed examples cleanly (Table~\ref{tab:gating_flights}). At $\theta = 0.35$, the base model correctly abstains on 100\% of undiscussed gold examples while retaining 71\% committed accuracy on the discussed subset (up from 43\% baseline under forced commitment).
+
+On CUAD's \texttt{expiration\_type} field the same operating point achieves 76\% abstention on \texttt{not\_specified} golds and 82\% committed accuracy on the specified subset -- a replication of the Flights\_1 result on a document-level task.
+
+Not every field supports this strategy, however. On CUAD's \texttt{renewal\_term} field, where 66\% of gold labels are \texttt{not\_specified}, the base model's abstention rate at $\theta = 0.30$ varies sharply with scale: at 0.5B the pretrained distribution places near-zero probability on the \texttt{not\_specified} token at the schema-value position, yielding 0\% abstention on the 34 undiscussed examples and 2\% overall accuracy. By 7B, the same field reaches 53\% baseline accuracy, and by 32B, 55\%. The model learns to emit the sentinel value somewhere between 0.5B and 7B; further scale adds little. Adding a sentinel value to the schema is thus a scale-sensitive intervention: at small model sizes it is insufficient without fine-tuning; at 7B or above it becomes usable but does not fully close the gap (55\% vs. the 66\% rate of \texttt{not\_specified} in gold). When label-only approaches are insufficient, presupposition labeling at training time is the remaining lever.
+
+\textbf{Margin calibration recovers at 32B.} A further observation from scaling margin gating across model sizes: the 7B scale produces the \emph{highest} mean margins on most constrained fields (often $> 0.95$), while 32B margins are systematically lower (typically $0.7$--$0.9$). Table~\ref{tab:margin_scaling} shows the pattern. Higher 7B margins reflect over-commitment: the model is confidently wrong on undiscussed cases (e.g., \texttt{has\_anti\_assignment} mean margin 0.99 at 22\% accuracy). At 32B the distribution over allowed values is less saturated, preserving evidential calibration that margin gating can read. This directly supports the proposition that 32B is more useful for inference-time gating than 7B despite their near-identical aggregate accuracies.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Field} & \textbf{0.5B} & \textbf{7B} & \textbf{32B} \\
+\midrule
+\texttt{refundable} (Flights)                    & 0.25 & \regress{0.80} & 0.45 \\
+\texttt{has\_anti\_assignment} (CUAD)            & 0.19 & \regress{0.99} & 0.93 \\
+\texttt{has\_cap\_on\_liability} (CUAD)          & 0.24 & \regress{0.97} & 0.92 \\
+\texttt{has\_most\_favored\_nation} (CUAD)       & 0.36 & 0.90 & 0.93 \\
+\texttt{expiration\_type} (CUAD)                 & 0.25 & 0.68 & 0.76 \\
+\bottomrule
+\end{tabular}
+\caption{Mean margin ($p_1 - p_2$) across scales. Peaks at 7B for most fields (red), indicating over-commitment. 32B margins are systematically lower and track evidence more faithfully, making margin-based abstention more informative at scale.}
+\label{tab:margin_scaling}
+\end{table}
+
+Margin gating and presupposition labeling address complementary halves of the same underlying problem. The former reads the model's existing evidential calibration; the latter aligns the training signal with that calibration. Neither requires architectural changes. The two combine: margin gating works best at scales where calibration is preserved (32B and above), while presupposition labeling rescues smaller models and sharpens larger ones.
+
+\subsection{Head-to-Head: Training-Time and Inference-Time Interventions}\label{sec:head_to_head}
+
+We evaluated all four combinations of \{baseline, PCL-FT\} $\times$ \{argmax, margin gating\} on both Flights and CUAD at 0.5B / 7B / 32B. Table~\ref{tab:head_to_head} reports aggregate accuracy across every constrained field per dataset; margin gating uses $\theta = 0.30$ with coverage (fraction of fields committed on) reported alongside committed accuracy.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+ &  & \multicolumn{2}{c}{\textbf{Baseline}} & \multicolumn{2}{c}{\textbf{PCL-FT}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6}
+\textbf{Dataset} & \textbf{Scale} & argmax & + IT-1 ($\theta{=}0.30$) & argmax & + IT-1 ($\theta{=}0.30$) \\
+\midrule
+Flights & 0.5B & 58\% & 77\% @66\% & 90\% & \textbf{96\%} @86\% \\
+Flights & 7B   & 71\% & 72\% @96\% & 90\% & \textbf{93\%} @94\% \\
+Flights & 32B  & 72\% & 84\% @82\% & 92\% & \textbf{94\%} @97\% \\
+\midrule
+CUAD    & 0.5B & 55\% & 64\% @53\% & 62\% & \textbf{66\%} @86\% \\
+CUAD    & 7B   & 65\% & 68\% @90\% & 67\% & \textbf{75\%} @83\% \\
+CUAD    & 32B  & 66\% & 68\% @91\% & 76\% & \textbf{81\%} @91\% \\
+\bottomrule
+\end{tabular}
+\caption{Aggregate accuracy across all constrained fields, per dataset $\times$ scale. Cells are argmax accuracy for argmax columns and ``committed accuracy @ coverage'' for the gated columns. The PCL-FT + inference-time gating combination is the best cell in every row.}
+\label{tab:head_to_head}
+\end{table}
+
+Three patterns are visible:
+
+\begin{itemize}
+\item \textbf{PCL-FT always helps.} Every row shows PCL-FT argmax $\ge$ baseline argmax. On Flights the gap is large (+32/+19/+20 pp); on CUAD it is smaller (+7/+2/+10 pp) because CUAD's boolean majority is preserved under FT regardless of the 3-way enum training signal.
+\item \textbf{Margin gating always adds a few percentage points on top of PCL-FT.} Even at 32B where PCL-FT reaches 92\%/76\%, gating adds 2--5 pp of committed accuracy at the cost of a small amount of coverage. The two interventions are not redundant.
+\item \textbf{The lift from margin gating is largest at 0.5B.} On the baseline Flights 0.5B row, gating alone lifts committed accuracy from 58\% to 77\% at 66\% coverage -- equivalent to one-third of the 32-pp gap that PCL-FT itself closes. For deployments where fine-tuning is impractical, inference-time gating on a small base model already captures a meaningful portion of the PCL-FT benefit.
+\end{itemize}
+
+The combined intervention (PCL-FT + margin gating) reaches 81--96\% across our scales and datasets, dominating every other configuration. The $\theta = 0.30$ operating point is conservative; tightening it further trades coverage for precision.
 
 \subsection{Remaining Open Directions}
 

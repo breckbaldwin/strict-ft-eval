@@ -1,30 +1,147 @@
 # strict-ft-eval
 
-Per-grammar-role loss decomposition for evaluating fine-tuned structured JSON output.
+Per-grammar-role loss decomposition for evaluating structured JSON output.
 
 This repo accompanies the paper *"Valid JSON, Wrong Answer: Fine-Tuning Degrades Schema Key Prediction at Scale"*.
 
-## Key Finding
+## Key Findings
 
-Standard LoRA fine-tuning + grammar-constrained decoding produces valid JSON at all model scales. Aggregate loss metrics show clear improvement. But per-grammar-role decomposition reveals that **key prediction degrades** at 32B — the model memorizes training-set key ordering instead of learning the schema, while aggregate metrics hide the regression behind large gains on trivial structural tokens.
+- Small baseline models degrade performance with grammar-contrained decoding. 
+- Standard LoRA fine-tuning + grammar-constrained decoding produces valid JSON at all model scales. Aggregate loss metrics show clear improvement. But per-grammar-role decomposition reveals that **key prediction degrades** at 32B — the model memorizes training-set key ordering instead of learning the schema, while aggregate metrics hide the regression behind large gains on trivial structural tokens.
 
 ## Setup
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/breckbaldwin/strict-ft-eval.git
 cd strict-ft-eval
+python -m venv .venv #may be `python3 -m venv .venv`
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## How to Reproduce
+
+The paper's experiments are reproducible end-to-end via a single
+orchestration script (`scripts/run_all_paper.sh`) on a fresh A100 80GB
+RunPod instance. Total wall-clock budget is roughly 6 hours.
+
+### Two paths
+
+**Option A — verify the paper from saved results.** The repo ships
+with `results.tgz` containing every experimental output referenced by
+the paper. Unpack to inspect numbers without re-running anything:
+
+```bash
+tar xzf results.tgz
+ls results/                       # per-grammar-role decomposition JSONs
+ls results/margin_gating/         # margin-gating + PCL-FT outputs (.json + .md)
+cat results/margin_gating/RESULTS.md
+cat results/pcl_ft/TRAINING.md
+```
+
+`results.tgz` overlays into `results/` without disturbing the
+re-run pipeline — every script in the orchestration is idempotent and
+will skip outputs already on disk. You can mix and match: unpack the
+tgz, then re-run individual phases to refresh specific cells.
+
+**Option B — re-run from scratch on a fresh A100.** Start with a
+RunPod A100 80GB PCIe (single GPU is sufficient for all three scales).
+After cloning and `pip install -r requirements.txt`:
+
+```bash
+# Provision data (CUAD ships in the repo under data/cuad/CUAD_v1/;
+# SGD is fetched and prepared by prepare_data.sh)
+bash scripts/prepare_data.sh
+python src/prepare_cuad.py
+
+# Run all four phases. Idempotent — interrupt and resume safely.
+bash scripts/run_all_paper.sh
+
+# Or run one phase at a time
+bash scripts/run_all_paper.sh phase1
+bash scripts/run_all_paper.sh phase2 phase3 phase4
+```
+
+### Phases
+
+| Phase | Wraps | Wall-clock | Produces (paper artefacts) |
+|------:|------|-----------:|----------------------------|
+| 1 | `scripts/run_experiment.sh all` | ~3.5 h | Per-grammar-role loss decomposition for Flights_1, Restaurants_1, CUAD × {0.5B, 7B, 32B} × {baseline, 10-epoch standard LoRA}. Backs `tab:aggregate`, `tab:flights_decomp`, `tab:restaurants_decomp`, `tab:enum_trend`. |
+| 2 | `scripts/runpod_baseline.py --scale all` | ~30 min | Margin-gating baseline confidence distributions on all three datasets × three scales. Backs `tab:cuad_per_field_scale`, `tab:gating_flights`, `tab:margin_scaling`, and the baseline columns of `tab:head_to_head`. |
+| 3 | `scripts/runpod_pcl_ft.py --datasets flights,restaurants,cuad` | ~90 min | PCL fine-tuning (3-way labels) + eval on all three datasets × three scales. Backs `tab:pcl` and the PCL-FT columns of `tab:head_to_head`. |
+| 4 | `runpod_baseline.py` and `runpod_pcl_ft.py` with `--test-data-override data/cuad_test_full.jsonl --tag-suffix _full` | ~25 min | Full-context CUAD re-evaluation (truncation hypothesis test discussed in §6.2). |
+
+### Outputs
+
+```
+results/
+├── <scale>_{baseline,finetuned}_{flights,restaurants,cuad}.json   (per-role loss)
+├── margin_gating/
+│   ├── <dataset>_qwen<scale>{,_pcl}{,_full}.json                  (raw probabilities)
+│   ├── <dataset>_qwen<scale>{,_pcl}{,_full}.md                    (per-tag analysis)
+│   └── RESULTS.md                                                  (auto-generated index)
+├── pcl_ft/TRAINING.md                                              (PCL-FT training record)
+└── run_all/<phase>.log                                             (per-phase logs)
+
+checkpoints/
+├── <scale>_<dataset>_lora_epoch10/                                 (Phase 1 standard LoRA adapters)
+└── <dataset>_pcl_qwen<scale>/lora_epoch5/                          (Phase 3 PCL-FT adapters)
+```
+
+### Mac-side analysis after pod runs
+
+After Phase 2 / 3 / 4 complete on a pod, rsync the `results/`
+directory back, then regenerate the per-tag `.md` sections locally:
+
+```bash
+# On Mac
+rsync -avz user@pod:/path/strict-ft-eval/results/ results/
+
+# Generate per-tag analysis files (instant; no GPU needed)
+for tag in $(ls results/margin_gating/*.json | xargs -n1 basename | sed 's/.json$//'); do
+  case $tag in
+    flights_*)     s=data/Flights_1_schema_pcl.json;     t=data/Flights_1_test_pcl.jsonl ;;
+    restaurants_*) s=data/Restaurants_1_schema_pcl.json; t=data/Restaurants_1_test_pcl.jsonl ;;
+    cuad_*_full)   s=data/cuad_schema.json;              t=data/cuad_test_full.jsonl ;;
+    cuad_*)        s=data/cuad_schema.json;              t=data/cuad_test.jsonl ;;
+  esac
+  python scripts/margin_gating_eval.py --schema "$s" --data "$t" \
+      --model _ --tag "$tag" --reuse-probs
+done
+```
+
+`results/margin_gating/RESULTS.md` is regenerated automatically and
+indexes every per-tag section.
+
+### Reproducibility caveats
+
+- LoRA training is **non-deterministic at bfloat16** unless seeds are
+  pinned in `src/train.py` (and `transformers`/`torch` cuDNN flags are
+  set). Numbers should land within ~1 percentage point of those in the
+  paper; the qualitative findings (regression direction, margin shape,
+  per-field rankings) are robust.
+- HuggingFace model weights are content-addressed, so
+  `Qwen/Qwen2.5-0.5B/7B/32B-Instruct` are bit-identical across pods —
+  not a source of variance.
+- Phase 4 requires the existing CUAD PCL-FT checkpoints from Phase 3.
+  If you start fresh and skip Phase 3, Phase 4 will fail with a
+  missing-checkpoint error.
+
 ## Data Preparation
 
-Uses the [Schema-Guided Dialogue (SGD)](https://github.com/google-research-datasets/dstc8-schema-guided-dialogue) dataset (Rastogi et al., AAAI 2020, CC BY-SA 4.0).
+Uses two datasets:
 
-`bash scripts/prepare_data.sh`
+- **Schema-Guided Dialogue (SGD)** — [GitHub](https://github.com/google-research-datasets/dstc8-schema-guided-dialogue). Rastogi et al., AAAI 2020. License: CC BY-SA 4.0.
+- **Contract Understanding Atticus Dataset (CUAD)** — [GitHub](https://github.com/TheAtticusProject/cuad). Hendrycks, Burns, Chen, Ball, 2021. License: CC BY 4.0. See [`data/cuad/ATTRIBUTION.md`](data/cuad/ATTRIBUTION.md) for full attribution and per-file licensing.
+
+```bash
+bash scripts/prepare_data.sh          # SGD (Flights_1, Restaurants_1)
+python src/prepare_cuad.py            # CUAD — requires data/cuad/CUAD_v1/ staged first
+```
 
 ## Local Usage
 
-The Qwen2.5-0.5B-Instruct will probably run on a 16G laptop. 
+The Qwen2.5-0.5B-Instruct will probably run on a 8G laptop. 
 
 
 ```bash
