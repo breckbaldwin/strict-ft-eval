@@ -68,13 +68,14 @@ DATASETS: Dict[str, Tuple[Path, Path]] = {
 }
 
 SCALES: Dict[str, str] = {
-    "7b":  "Qwen/Qwen2.5-7B-Instruct",
-    "32b": "Qwen/Qwen2.5-32B-Instruct",
+    "0.5b": "Qwen/Qwen2.5-0.5B-Instruct",
+    "7b":   "Qwen/Qwen2.5-7B-Instruct",
+    "32b":  "Qwen/Qwen2.5-32B-Instruct",
 }
 
 # When --scale all is used, process 32B first (catches VRAM / config
 # problems before committing the 7B run).
-SCALE_ORDER = ["32b", "7b"]
+SCALE_ORDER = ["32b", "7b", "0.5b"]
 
 
 # --- Confidence extraction (self-contained, mirrors valjson --confidence) -
@@ -277,8 +278,8 @@ def load_model(model_name: str, device: str):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scale", choices=["7b", "32b", "all"], default="32b",
-                    help="Model scale. 'all' runs 32B first then 7B. Default 32B.")
+    ap.add_argument("--scale", choices=["0.5b", "7b", "32b", "all"], default="32b",
+                    help="Model scale. 'all' runs 32B → 7B → 0.5B. Default 32B.")
     ap.add_argument("--datasets", default=",".join(DATASETS.keys()),
                     help=f"Comma-separated subset of {list(DATASETS)}. Default: all.")
     ap.add_argument("--device", default="cuda",
