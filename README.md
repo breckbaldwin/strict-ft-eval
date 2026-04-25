@@ -19,6 +19,30 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### HuggingFace token
+
+You need a HuggingFace access token to download the Qwen 2.5 model
+weights (the models are public but the Hub still requires
+authentication for `from_pretrained` calls). Get one at
+[huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+— a Read token is sufficient.
+
+Then either set it as an environment variable:
+
+```bash
+export HF_TOKEN=hf_...
+```
+
+or log in interactively (writes to `~/.cache/huggingface/token`):
+
+```bash
+huggingface-cli login
+```
+
+When provisioning a remote pod, set `HF_TOKEN` in the pod's environment
+(e.g., add `export HF_TOKEN=hf_...` to `~/.bashrc`) before running any
+script that downloads model weights.
+
 ## How to Reproduce
 
 The paper's experiments are reproducible end-to-end via a single
@@ -126,6 +150,14 @@ indexes every per-tag section.
 - Phase 4 requires the existing CUAD PCL-FT checkpoints from Phase 3.
   If you start fresh and skip Phase 3, Phase 4 will fail with a
   missing-checkpoint error.
+- **CUAD train/test split size may differ by ±1 between snapshots.**
+  `src/prepare_cuad.py` matches the CUAD `master_clauses.csv` rows
+  against text files in the HF mirror by filename stem; the overlap
+  has been observed at both 193 and 194 records on different machines,
+  apparently due to filename-encoding quirks in `pathlib.rglob`. The
+  adapter handles the drift automatically — `n_train` is preserved
+  and `n_test` shrinks by 1 if needed (a `WARN:` line is printed).
+  Difference is statistically immaterial (<0.5% of test set).
 
 ## Data Preparation
 
@@ -178,6 +210,23 @@ The paper's results require GPU for 7B and 32B models. We use [RunPod](https://w
 | 0.5B  | Any | 8GB+ | — |
 | 7B    | A40 | 48GB | ~$0.39/hr |
 | 32B   | A100 80GB | 80GB | ~$1.19/hr |
+
+### Disk
+
+When provisioning a RunPod instance, allocate **150 GB container disk
++ 150 GB volume disk** (the two-disk model RunPod presents at launch).
+Breakdown:
+
+- HuggingFace model cache for Qwen 2.5 {0.5B, 7B, 32B} weights: ~80 GB
+  (32B alone is ~65 GB at bf16).
+- Repo + data + intermediate training state: <5 GB.
+- LoRA checkpoints accumulated across all phases: <2 GB.
+- Headroom for `pip install`, transient files, logs: rest.
+
+The container-disk allocation matters because the HF cache lives at
+`/workspace/hf_cache` (set by the `HF_HOME` env var) on the volume
+disk, but `pip install` and other ephemeral state goes to the
+container disk; both need room.
 
 ### Launch and Setup
 
