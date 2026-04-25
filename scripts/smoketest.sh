@@ -23,7 +23,7 @@ echo ""
 
 # 2. Python + libraries
 echo "=== Python Libraries ==="
-cd /workspace/strict-ft-eval
+cd "$(dirname "$0")/.."
 python3 -c "
 import sys
 print(f'Python: {sys.version}')

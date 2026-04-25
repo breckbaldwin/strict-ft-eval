@@ -48,7 +48,7 @@
 
 set -euo pipefail
 
-cd /workspace/strict-ft-eval
+cd "$(dirname "$0")/.."
 source venv/bin/activate
 export HF_HOME=${HF_HOME:-/workspace/hf_cache}
 

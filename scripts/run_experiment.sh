@@ -18,7 +18,7 @@
 
 set -e
 
-cd /workspace/strict-ft-eval
+cd "$(dirname "$0")/.."
 export HF_HOME=${HF_HOME:-/workspace/hf_cache}
 
 EPOCHS=10
