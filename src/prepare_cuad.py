@@ -235,9 +235,20 @@ def stratified_split(records: List[Dict], n_train: int, n_test: int,
 
     total_needed = n_train + n_test
     if len(records) < total_needed:
-        raise SystemExit(
-            f"Need {total_needed} records, only {len(records)} matched."
+        # CSV-to-txt overlap can drift slightly across HF mirror snapshots
+        # and filename-encoding quirks. Shrink the test split rather than
+        # erroring; preserve n_train and absorb any shortfall in n_test.
+        new_n_test = max(1, len(records) - n_train)
+        if new_n_test < 1:
+            raise SystemExit(
+                f"Only {len(records)} records matched; cannot satisfy "
+                f"--n-train {n_train}. Lower --n-train and re-run."
+            )
+        print(
+            f"WARN: only {len(records)} records matched (wanted {total_needed}); "
+            f"shrinking n_test from {n_test} to {new_n_test} to fit."
         )
+        n_test = new_n_test
     train, test = [], []
     for b, items in sorted(buckets.items()):
         p_train = n_train / total_needed
