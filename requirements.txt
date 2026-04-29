@@ -1,4 +1,14 @@
-torch>=2.0
+# PyTorch must match the host's CUDA driver. The default PyPI wheel is
+# typically built against cu126 (requires driver >= 12.6), which fails
+# on common RunPod images shipping with driver 12.5. The cu124 channel
+# below works on any driver >= 12.4.
+#
+# If you need a different CUDA version, override at install time:
+#   pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch>=2.4,<2.7
+
 transformers>=4.40
 peft>=0.10
 datasets

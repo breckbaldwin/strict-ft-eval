@@ -4,34 +4,34 @@
   "num_examples": 50,
   "per_role": {
     "STRUCTURAL": {
-      "mean_loss": 0.0006039810180664063,
+      "mean_loss": 0.0005798017978668212,
       "count": 100
     },
     "QUOTE": {
-      "mean_loss": 0.04380287446473774,
+      "mean_loss": 0.026970870620325993,
       "count": 950
     },
     "KEY": {
-      "mean_loss": 0.0015647212266921998,
+      "mean_loss": 0.0007671221494674683,
       "count": 1000
     },
     "ENUM_VALUE": {
-      "mean_loss": 0.3579860329627991,
+      "mean_loss": 0.3017573541807897,
       "count": 206
     },
     "BOOLEAN": {
-      "mean_loss": 0.36098203659057615,
+      "mean_loss": 0.42988787531852724,
       "count": 100
     },
     "FREE_TEXT": {
-      "mean_loss": 1.2074923011475445,
+      "mean_loss": 1.1971062927821086,
       "count": 1642
     },
     "WHITESPACE": {
-      "mean_loss": 4.5902352584035775e-05,
+      "mean_loss": 1.5416647258557772e-05,
       "count": 1425
     }
   },
-  "total_mean_loss": 0.3938500729957762,
+  "total_mean_loss": 0.38673589035261385,
   "total_tokens": 5423
 }

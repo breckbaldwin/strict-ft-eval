@@ -14,12 +14,36 @@ This repo accompanies the paper *"Valid JSON, Wrong Answer: Fine-Tuning Degrades
 ```bash
 git clone https://github.com/breckbaldwin/strict-ft-eval.git
 cd strict-ft-eval
-python -m venv .venv #may be `python3 -m venv .venv`
+python -m venv venv #may be `python3 -m venv .venv`
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### CUDA / PyTorch driver compatibility
+
+`requirements.txt` pins PyTorch to the cu124 channel
+(`--extra-index-url https://download.pytorch.org/whl/cu124`), which
+works on any NVIDIA driver ≥ 12.4 — the default for current RunPod
+A100 images. If your host has a different CUDA driver, override the
+index URL when installing:
+
+```bash
+# Driver 12.1–12.3
+pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu121
+
+# Driver 11.8–12.0
+pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu118
+```
+
+Symptom of a mismatch: `RuntimeError: The NVIDIA driver on your system
+is too old (found version 1xxxx)` on the first `torch` import. Check
+your driver with `nvidia-smi` and pick a CUDA channel ≤ that.
+
 ### HuggingFace token
+
+**Only required for re-running experiments (Option B in the next
+section). If you're verifying the paper from `results.tgz` (Option A),
+you can skip this — no model downloads happen.**
 
 You need a HuggingFace access token to download the Qwen 2.5 model
 weights (the models are public but the Hub still requires

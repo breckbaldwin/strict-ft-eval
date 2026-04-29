@@ -276,7 +276,7 @@ To test whether the per-role phenomena generalise beyond task-oriented dialogue,
 
 \textbf{Per-field baseline accuracy at 0.5B ranges from 2\% to 94\%.} Aggregate accuracy on the 11-field schema would average these to an uninformative middle value; the aggregate metric obscures nearly every field-level story. This reproduces the paper's central thesis on a document-level input, demonstrating that the pattern is not an artefact of dialogue state tracking. Crucially, aggregate accuracy at 7B (65.1\%) and 32B (66.4\%) is nearly identical -- a developer using aggregate metrics would conclude 7B is sufficient. Per-field analysis contradicts this conclusion.
 
-\textbf{Boolean fields partition into two regimes by the sign of the pretrained prior.} For fields where the base model's default (False) matches the majority gold class -- e.g., \texttt{has\_most\_favored\_nation} with 4\% True gold -- baseline accuracy is 94\% across all scales and per-field diagnostics confirm strong calibration. For fields where the base model's default contradicts the majority gold class -- e.g., \texttt{has\_anti\_assignment} with 78\% True gold -- baseline accuracy collapses to 27\% at 0.5B and \emph{further regresses to 22\% at 7B} before partially recovering to 35\% at 32B. The 7B dip is accompanied by a mean margin of 0.99: the model becomes \emph{confidently more wrong} at intermediate scale before partially recovering. This non-monotonic failure is invisible to aggregate accuracy, which rises monotonically with scale on this schema.
+\textbf{Boolean fields partition into two regimes by the sign of the pretrained prior.} For fields where the base model's default (False) matches the majority gold class -- e.g., \texttt{has\_most\_favored\_nation} with 4\% True gold -- baseline accuracy is 94\% across all scales and per-field diagnostics confirm strong calibration. For fields where the base model's default contradicts the majority gold class -- e.g., \texttt{has\_anti\_assignment} with 78\% True gold -- baseline accuracy is 31\% at 0.5B and \emph{further regresses to 24\% at 7B} before partially recovering to 35\% at 32B. The 7B dip is accompanied by a mean margin of 0.99: the model becomes \emph{confidently more wrong} at intermediate scale before partially recovering. This non-monotonic failure is invisible to aggregate accuracy, which rises monotonically with scale on this schema.
 
 \begin{table}[h]
 \centering
@@ -285,13 +285,13 @@ To test whether the per-role phenomena generalise beyond task-oriented dialogue,
 \toprule
 \textbf{Field} & \textbf{0.5B} & \textbf{7B} & \textbf{32B} \\
 \midrule
-\texttt{has\_most\_favored\_nation}  & 94\% (0.36) & 96\% (0.90) & 94\% (0.93) \\
-\texttt{has\_liquidated\_damages}    & 86\% (0.51) & 92\% (0.73) & 90\% (0.83) \\
-\texttt{has\_exclusivity}            & 67\% (0.23) & 86\% (0.76) & 92\% (0.79) \\
-\texttt{has\_anti\_assignment}       & 27\% (0.19) & \regress{22\% (0.99)} & 35\% (0.93) \\
-\texttt{governing\_law} (12-way)     & 18\% (0.20) & 24\% (0.57) & 27\% (0.69) \\
-\texttt{renewal\_term} (6-way)       & \regress{2\% (0.45)} & 53\% (0.64) & 55\% (0.70) \\
-\texttt{expiration\_type} (3-way)    & 49\% (0.25) & 67\% (0.68) & 63\% (0.76) \\
+\texttt{has\_most\_favored\_nation}  & 94\% (0.38) & 96\% (0.90) & 94\% (0.94) \\
+\texttt{has\_liquidated\_damages}    & 86\% (0.51) & 90\% (0.75) & 90\% (0.83) \\
+\texttt{has\_exclusivity}            & 65\% (0.23) & 82\% (0.76) & 92\% (0.78) \\
+\texttt{has\_anti\_assignment}       & 31\% (0.20) & \regress{24\% (0.99)} & 35\% (0.96) \\
+\texttt{governing\_law} (12-way)     & 14\% (0.21) & 20\% (0.57) & 24\% (0.74) \\
+\texttt{renewal\_term} (6-way)       & \regress{2\% (0.45)} & 51\% (0.65) & 55\% (0.72) \\
+\texttt{expiration\_type} (3-way)    & 49\% (0.26) & 67\% (0.67) & 57\% (0.80) \\
 \bottomrule
 \end{tabular}
 \caption{CUAD baseline accuracy (mean margin) across scales for selected fields. Regressions in red. \texttt{has\_anti\_assignment} shows per-field regression from 0.5B to 7B invisible to the $\sim$65\% aggregate at both scales; \texttt{renewal\_term} shows a scale-dependent acquisition of the \texttt{not\_specified} sentinel between 0.5B and 7B.}
@@ -366,7 +366,7 @@ Critically, this requires \emph{no changes to the model architecture or training
 
 This does not diminish the value of per-grammar-role decomposition: without the decomposition, the regression would not have been detected, and without the lexical analysis it motivated, the labeling problem would not have been identified. The diagnostic method remains essential even when the treatment is simple.
 
-\textbf{Extending to CUAD reveals field-specific variance.} Applying PCL fine-tuning to the 11-field CUAD schema (Section~\ref{sec:cuad}) across the same three scales produces a mixed picture. Aggregate accuracy rises modestly (+7/+2/+10 pp at 0.5B/7B/32B, vs. +32/+19/+20 on Flights), and the per-field breakdown explains why: PCL-FT's benefit is concentrated on fields whose pretrained prior conflicts with the task distribution (\texttt{has\_anti\_assignment} 27→86\% at 32B; \texttt{governing\_law} 18→53\% at 32B). On fields whose pretrained behaviour was already correct (\texttt{has\_most\_favored\_nation}, \texttt{has\_liquidated\_damages}), PCL-FT is neutral. On some fields PCL-FT \emph{regresses} (\texttt{expiration\_type} falls from 49/67/63\% baseline to 45/47/49\% after PCL-FT; \texttt{has\_non\_compete} drops at 0.5B and 7B). The regressions appear concentrated where the training signal available to the model is weak relative to the field's semantic requirements -- plausibly because we truncate contracts to the first $\sim$2000 tokens for training efficiency and the diagnostic clauses often sit deeper in the document. The finding is important for the deployment posture: PCL-FT is not a uniform win, and per-field evaluation remains necessary even after intervention.
+\textbf{Extending to CUAD reveals field-specific variance.} Applying PCL fine-tuning to the 11-field CUAD schema (Section~\ref{sec:cuad}) across the same three scales produces a mixed picture. Aggregate accuracy rises modestly (+12/+3/+5 pp at 0.5B/7B/32B, vs. +30/+19/+20 on Flights), and the per-field breakdown explains why: PCL-FT's benefit is concentrated on fields whose pretrained prior conflicts with the task distribution (\texttt{has\_anti\_assignment} 35$\rightarrow$61\% at 32B; \texttt{governing\_law} 25$\rightarrow$39\% at 32B). On fields whose pretrained behaviour was already correct (\texttt{has\_most\_favored\_nation}, \texttt{has\_liquidated\_damages}), PCL-FT is neutral. On some fields PCL-FT \emph{regresses} (\texttt{expiration\_type} falls from 49/67/57\% baseline to 43/55/39\% after PCL-FT at 0.5B/7B/32B; \texttt{has\_non\_compete} 80/88/82\% baseline drops to 65/76/65\% PCL-FT). The regressions concentrate on fields whose training signal is weakened by truncation: contracts are truncated to the first 8000 characters for training efficiency, and the diagnostic clauses for these fields often sit deeper in the document. We confirm this hypothesis directly: re-evaluating the same 32B PCL-FT model on full-context CUAD test contracts lifts aggregate accuracy from 71\% to 85\% and substantially recovers both regressions (\texttt{expiration\_type} 39$\rightarrow$53\%, \texttt{has\_non\_compete} 65$\rightarrow$79\% at 32B). The training-time truncation is the bottleneck, not PCL-FT itself. The finding is important for the deployment posture: PCL-FT is not a uniform win, per-field evaluation remains necessary even after intervention, and training-time truncation choices affect which fields PCL-FT can rescue.
 
 \subsection{Presupposition Labeling as a Third Category}
 
@@ -436,7 +436,7 @@ Margin gating and presupposition labeling address complementary halves of the sa
 
 \subsection{Head-to-Head: Training-Time and Inference-Time Interventions}\label{sec:head_to_head}
 
-We evaluated all four combinations of \{baseline, PCL-FT\} $\times$ \{argmax, margin gating\} on both Flights and CUAD at 0.5B / 7B / 32B. Table~\ref{tab:head_to_head} reports aggregate accuracy across every constrained field per dataset; margin gating uses $\theta = 0.30$ with coverage (fraction of fields committed on) reported alongside committed accuracy.
+We evaluated all four combinations of \{baseline, PCL-FT\} $\times$ \{argmax, margin gating\} on Flights, Restaurants, and CUAD at 0.5B / 7B / 32B. Table~\ref{tab:head_to_head} reports aggregate accuracy across every constrained field per dataset; margin gating uses $\theta = 0.30$ with coverage (fraction of fields committed on) reported alongside committed accuracy.
 
 \begin{table}[t]
 \centering
@@ -447,28 +447,32 @@ We evaluated all four combinations of \{baseline, PCL-FT\} $\times$ \{argmax, ma
 \cmidrule(lr){3-4} \cmidrule(lr){5-6}
 \textbf{Dataset} & \textbf{Scale} & argmax & + IT-1 ($\theta{=}0.30$) & argmax & + IT-1 ($\theta{=}0.30$) \\
 \midrule
-Flights & 0.5B & 58\% & 77\% @66\% & 90\% & \textbf{96\%} @86\% \\
-Flights & 7B   & 71\% & 72\% @96\% & 90\% & \textbf{93\%} @94\% \\
-Flights & 32B  & 72\% & 84\% @82\% & 92\% & \textbf{94\%} @97\% \\
+Flights     & 0.5B & 58\% & 74\% @68\%     & 88\% & \textbf{89\%} @97\% \\
+Flights     & 7B   & 71\% & 72\% @96\%     & 90\% & \textbf{93\%} @94\% \\
+Flights     & 32B  & 72\% & 84\% @82\%     & 92\% & \textbf{95\%} @95\% \\
 \midrule
-CUAD    & 0.5B & 55\% & 64\% @53\% & 62\% & \textbf{66\%} @86\% \\
-CUAD    & 7B   & 65\% & 68\% @90\% & 67\% & \textbf{75\%} @83\% \\
-CUAD    & 32B  & 66\% & 68\% @91\% & 76\% & \textbf{81\%} @91\% \\
+Restaurants & 0.5B & 31\% & 39\% @58\%     & 81\% & \textbf{87\%} @92\% \\
+Restaurants & 7B   & 45\% & 48\% @93\%     & 83\% & \textbf{85\%} @96\% \\
+Restaurants & 32B  & 52\% & 52\% @92\%     & 82\% & \textbf{83\%} @97\% \\
+\midrule
+CUAD        & 0.5B & 56\% & 64\% @58\%     & 68\% & \textbf{71\%} @77\% \\
+CUAD        & 7B   & 65\% & 67\% @89\%     & 68\% & \textbf{70\%} @91\% \\
+CUAD        & 32B  & 66\% & 67\% @92\%     & 71\% & \textbf{73\%} @93\% \\
 \bottomrule
 \end{tabular}
-\caption{Aggregate accuracy across all constrained fields, per dataset $\times$ scale. Cells are argmax accuracy for argmax columns and ``committed accuracy @ coverage'' for the gated columns. The PCL-FT + inference-time gating combination is the best cell in every row.}
+\caption{Aggregate accuracy across all constrained fields, per dataset $\times$ scale. Cells are argmax accuracy for argmax columns and ``committed accuracy @ coverage'' for the gated columns. PCL-FT + inference-time gating is the best cell in every row. CUAD here uses the 8000-character truncated prompt; full-context CUAD reaches 85\%/87\%@96\% at 32B (Section~\ref{sec:cuad}).}
 \label{tab:head_to_head}
 \end{table}
 
 Three patterns are visible:
 
 \begin{itemize}
-\item \textbf{PCL-FT always helps.} Every row shows PCL-FT argmax $\ge$ baseline argmax. On Flights the gap is large (+32/+19/+20 pp); on CUAD it is smaller (+7/+2/+10 pp) because CUAD's boolean majority is preserved under FT regardless of the 3-way enum training signal.
-\item \textbf{Margin gating always adds a few percentage points on top of PCL-FT.} Even at 32B where PCL-FT reaches 92\%/76\%, gating adds 2--5 pp of committed accuracy at the cost of a small amount of coverage. The two interventions are not redundant.
-\item \textbf{The lift from margin gating is largest at 0.5B.} On the baseline Flights 0.5B row, gating alone lifts committed accuracy from 58\% to 77\% at 66\% coverage -- equivalent to one-third of the 32-pp gap that PCL-FT itself closes. For deployments where fine-tuning is impractical, inference-time gating on a small base model already captures a meaningful portion of the PCL-FT benefit.
+\item \textbf{PCL-FT always helps.} Every row shows PCL-FT argmax $\ge$ baseline argmax. On Flights the gap is +19/+20 pp at 7B/32B, driven by \texttt{refundable} recovering from the 32B regression. Restaurants shows the largest gap (+38/+30 pp), driven by both boolean fields (\texttt{serves\_alcohol}, \texttt{has\_live\_music}) where ``alcohol'' and ``music'' carry unique evidential signal. CUAD's gap is the smallest (+3/+5 pp), partly because the truncated prompt cuts off cue evidence for several fields and partly because CUAD's existing \texttt{not\_specified} sentinel already absorbs much of the under-specification signal that PCL adds for the other two datasets.
+\item \textbf{Margin gating always adds a few percentage points on top of PCL-FT.} Across all rows where both columns exist, gating adds 1--6 pp of committed accuracy for 3--8 pp of dropped coverage. The two interventions are not redundant: PCL-FT shifts the model to use the \texttt{ambiguous} sentinel during commitment; gating reads margin distance to detect the residual underconfident commitments that the model still emits.
+\item \textbf{Gating helps most where commitment is least informative.} The two largest gating-only lifts are 0.5B Flights (58$\rightarrow$74\% at 68\% coverage) and 32B Flights (72$\rightarrow$84\% at 82\% coverage), both without any fine-tuning. The first is the small-model regime where fine-tuning is impractical; the second is the regime where evidential calibration is best preserved (Section~\ref{sec:gating}). In both, gating reads the model's existing uncertainty directly.
 \end{itemize}
 
-The combined intervention (PCL-FT + margin gating) reaches 81--96\% across our scales and datasets, dominating every other configuration. The $\theta = 0.30$ operating point is conservative; tightening it further trades coverage for precision.
+The combined intervention (PCL-FT + margin gating) reaches 70--95\% committed accuracy across our scales and datasets, dominating every other configuration. The $\theta = 0.30$ operating point is conservative; tightening it further trades coverage for precision.
 
 \subsection{Remaining Open Directions}
 
